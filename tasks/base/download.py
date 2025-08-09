@@ -9,8 +9,9 @@ def download_with_progress(download_url, save_path):
 
     # 检查 gh-proxy 和 github 原始链接的可用性
     test_urls = [
-        "https://gh-proxy.com/https://github.com/github/github-mcp-server/raw/refs/heads/main/README.md",
-        "https://github.com/github/github-mcp-server/raw/refs/heads/main/README.md"
+        "https://github.com/github/github-mcp-server/raw/refs/heads/main/README.md",
+        "https://gh-proxy.com/https://github.com/github/github-mcp-server/raw/refs/heads/main/README.md"
+        
     ]
     proxy_available = False
     origin_available = False
@@ -29,8 +30,8 @@ def download_with_progress(download_url, save_path):
     except Exception:
         pass
 
-    # 如果都可用，优先用 gh-proxy
-    if proxy_available and origin_available:
+    # 用 gh-proxy
+    if proxy_available and not origin_available:
         if download_url.startswith("https://github.com/"):
             download_url = "https://gh-proxy.com/" + download_url
 
