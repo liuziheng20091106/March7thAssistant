@@ -82,6 +82,10 @@ class Screen(metaclass=SingletonMeta):
             self.logger.info("检测到剧情提示，点击稍后")
             auto.click_element("./assets/images/zh_CN/base/later.jpg", "image", 0.9, take_screenshot=False)
             time.sleep(2)
+        if auto.find_element("./assets/images/zh_CN/base/download.png", "image", 0.9, take_screenshot=False):
+            self.logger.info("检测到资源缺失，点击下载")
+            auto.click_element("./assets/images/zh_CN/base/download.png", "image", 0.9, take_screenshot=False)
+            time.sleep(2)
         if auto.find_element("./assets/images/zh_CN/base/tping.jpg", "image", 0.9, take_screenshot=False):
             self.logger.info("检测到正在传送或加载")
             time.sleep(30)
