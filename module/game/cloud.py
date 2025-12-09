@@ -19,7 +19,7 @@ from selenium.common.exceptions import WebDriverException
 from module.config import Config
 from module.game.base import GameControllerBase
 from module.logger import Logger
-from utils.encryption import wdp_encrypt, wdp_decrypt
+#from utils.encryption import wdp_encrypt, wdp_decrypt
 
 class CloudGameController(GameControllerBase):
     COOKIE_PATH = "settings/cookies.enc"          # Cookies 保存地址（仅用于调试）
@@ -88,34 +88,8 @@ class CloudGameController(GameControllerBase):
         })
     
     def _prepare_browser_and_driver(self, browser_type: str, integrated: bool) -> str | str:
-        self.user_profile_path = os.path.join(self.BROWSER_INSTALL_PATH, "UserProfile", self.cfg.browser_type.capitalize())
-        if integrated:
-            browser_path = self.INTEGRATED_BROWSER_PATH
-            driver_path = self.INTEGRATED_DRIVER_PATH
-            if not os.path.exists(browser_path) or not os.path.exists(driver_path):
-                self.log_info("正在下载浏览器和驱动...")
-                args = ["--browser", browser_type,
-                        "--cache-path", self.BROWSER_INSTALL_PATH,
-                        "--browser-version", self.INTEGRATED_BROWSER_VERSION,
-                        "--force-browser-download",
-                        "--skip-driver-in-path",
-                        "--skip-browser-in-path"]
-                try:
-                    SeleniumManager().binary_paths(args)
-                except WebDriverException as e:
-                    raise Exception(f"浏览器和驱动下载失败：{e}")
-        else:
-            # 尝试在本地查找浏览器
-            args = ["--browser", browser_type,
-                    "--cache-path", self.BROWSER_INSTALL_PATH,
-                    "--avoid-browser-download",
-                    "--skip-driver-in-path"]
-            try:
-                result = SeleniumManager().binary_paths(args)
-            except WebDriverException as e:
-                raise Exception(f"查找 {browser_type} 浏览器出错：{e}")
-            browser_path = result["browser_path"]
-            driver_path = result["driver_path"]
+        driver_path=None
+        browser_path=None
         self.log_debug(f"browser_path = {browser_path}, driver_path = {driver_path}")
         return browser_path, driver_path
     
@@ -125,44 +99,48 @@ class CloudGameController(GameControllerBase):
             "--disable-infobars",   # 去掉提示 "Chrome测试版仅适用于自动测试。" 和 "浏览器正由自动测试软件控制。"
             "--lang=zh-CN",     # 浏览器语言中文
             "--log-level=3",    # 浏览器日志等级为error
+            "--headless",
+            "--no-sandbox"
+            "--disable-dev-shm-usage"
+            "--disable-gpu",
+            "--window-size=1920,1080",
+            "--start-maximized",
+            "-–single-process",
+            "--user-data-dir=\"\\m7a\\chromedata\\\"",  # 使用指定用户数据目录
             f"--force-device-scale-factor={float(self.cfg.browser_scale_factor)}",  # 设置缩放
             f"--app={self.GAME_URL}",   # 以应用模式启动
             "--disable-blink-features=AutomationControlled",  # 去除自动化痕迹，防止被人机验证
             f"--remote-debugging-port={self.cfg.browser_debug_port}",   # 调试端口，可用于复用浏览器
         ]
-        if self.cfg.browser_persistent_enable:
-            args += [
-                f"--user-data-dir={self.user_profile_path}",   # UserProfile 路径
-                "--profile-directory=Default",            # UserProfile 名称
-            ]
-        if headless:
-            args += [
-                "--headless=new",  # 无窗口模式
-                "--mute-audio",    # 后台静音
-            ]
-        if self.cfg.cloud_game_fullscreen_enable and not headless:
-            args.append("--start-fullscreen")  # 全屏启动
-        args.extend(self.cfg.browser_launch_argument) # 用户自定义参数
+        
         return args
+    '''chrome_options.add_argument('--headless') # 浏览器不提供可视化页面. linux下如果系统不支持可视化不加这条会启动失败
+        chrome_options.add_argument('--no-sandbox')  # 解决DevToolsActivePort文件不存在的报错
+        chrome_options.add_argument('--disable-dev-shm-usage') # 大量渲染时候写入/tmp而非/dev/shm
+        chrome_options.add_argument('--disable-gpu') # 谷歌文档提到需要加上这个属性来规避bug
+        chrome_options.add_argument('-–single-process')  #以单进程模式运行 Chromium。（启动时浏览器会给出不安全警告）
+        chrome_options.add_argument('window-size=1920x1080')  # 指定浏览器分辨率
+        chrome_options.add_argument('--start-maximized')  # 最大化运行（全屏窗口）,不设置，取元素会报错
+        chrome_options.add_argument('--user-data-dir=/home/jenkins/data')
+        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        chrome_options.add_experimental_option('useAutomationExtension', False)
+'''
 
     def _connect_or_create_browser(self, headless=False) -> None:
         """尝试连接到现有的（由小助手启动的）浏览器，如果没有，那就创建一个"""
-        browser_type = "chrome" if self.cfg.browser_type in ["integrated", "chrome"] else "edge"
+        browser_type = "chrome"
         integrated = self.cfg.browser_type=="integrated"
         first_run = False
         browser_path, driver_path = self._prepare_browser_and_driver(browser_type, integrated)
         
-        if not os.path.exists(self.user_profile_path):
+        if not os.path.exists("\\m7a\\chromedata\\"):
             first_run = True
         
         if browser_type == "chrome":
             options = ChromeOptions()
             service = ChromeService(executable_path=driver_path, log_path=os.devnull)
             webdriver_type = webdriver.Chrome
-        else: #edge
-            options = EdgeOptions()
-            service = EdgeService(executable_path=driver_path, log_path=os.devnull)
-            webdriver_type = webdriver.Edge
+        
         # 记录 driver 可执行路径和 service，以便后续清理 chromedriver 进程
         self.driver_path = driver_path
         self._webdriver_service = service
@@ -173,7 +151,7 @@ class CloudGameController(GameControllerBase):
         if self.get_m7a_browsers(headless=headless):
             # 如果发现已经有浏览器，尝试直接连接
             try:
-                options.debugger_address = f"127.0.0.1:{self.cfg.browser_debug_port}"
+                options.debugger_address = f"localhost:{self.cfg.browser_debug_port}"
                 self.driver = webdriver_type(service=service, options=options)
                 self.log_info("已连接到现有浏览器")
                 return # 连接成功，直接返回
@@ -384,7 +362,7 @@ class CloudGameController(GameControllerBase):
 
     def is_integrated_browser_downloaded(self) -> bool:
         """当前是否已经下载内置浏览器"""
-        return os.path.exists(self.INTEGRATED_BROWSER_PATH) and os.path.exists(self.INTEGRATED_DRIVER_PATH)
+        return True
     
     def get_m7a_browsers(self, headless=None) -> list[psutil.Process]:
         """
@@ -505,26 +483,11 @@ class CloudGameController(GameControllerBase):
         """进入云游戏"""
         try:            
             # 检测登录状态
-            while not self._check_login():
+            if not self._check_login():
                 self.log_info("未登录")
+                raise Exception("未登录，请先登录米哈游通行证账号")
                 
-                # 如果是 headless，则以非 headless 模式重启启动让用户登录
-                if self.cfg.browser_headless_enable:
-                    self._restart_browser(headless=False)
-                    
-                self.log_info("请在浏览器中完成登录操作")
                 
-                # 循环检测用户是否登录
-                while not self._check_login():
-                    sleep(2)
-                    
-                self.log_info("检测到登录成功")
-                
-                # 如果为 headless 模式，则重启浏览器回到 headless 模式
-                if self.cfg.browser_headless_enable:
-                    if self.cfg.browser_dump_cookies_enable:
-                        self._save_cookies()
-                    self._restart_browser(headless=True)
             
             if self.cfg.browser_dump_cookies_enable:
                 self._save_cookies()

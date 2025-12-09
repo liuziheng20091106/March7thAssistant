@@ -4,7 +4,7 @@ from module.screen import screen
 from module.automation import auto
 from module.logger import log
 from tasks.power.instance import Instance
-from tasks.weekly.universe import Universe
+#from tasks.weekly.universe import Universe
 import time
 
 
@@ -32,7 +32,7 @@ class PlanarFissure(DoubleActivity):
 
         # 需要判断是否有可用存档
         if auto.find_element("无可用存档", "text", crop=(688.0 / 1920, 289.0 / 1080, 972.0 / 1920, 369.0 / 1080), include=True):
-            # 刷差分宇宙存档
+            '''# 刷差分宇宙存档
             if Universe.start(nums=1, save=False, category="divergent"):
                 # 验证存档
                 screen.change_to('guide3')
@@ -42,8 +42,8 @@ class PlanarFissure(DoubleActivity):
                 if auto.find_element("无可用存档", "text", crop=(688.0 / 1920, 289.0 / 1080, 972.0 / 1920, 369.0 / 1080), include=True):
                     log.error("暂无可用存档")
                     return True
-            else:
-                return True
+            else:'''
+            return True
 
         screen.change_to("guide3")
 

@@ -1,12 +1,10 @@
-import os
+
 import sys
 import time
-import psutil
 
 
-from app.tools.account_manager import load_acc_and_pwd
-from utils.registry.gameaccount import gamereg_uid
-from .starrailcontroller import StarRailController
+
+#from .starrailcontroller import StarRailController
 
 from utils.date import Date
 from tasks.power.power import Power
@@ -20,7 +18,7 @@ from module.notification.notification import NotificationLevel
 from module.ocr import ocr
 from module.screen import screen
 
-starrail = StarRailController(cfg=cfg, logger=log)
+#starrail = StarRailController(cfg=cfg, logger=log)
 
 
 def start():
@@ -41,35 +39,7 @@ def start_game():
             time.sleep(period)
         return False
 
-    def check_and_click_enter():
-        # 点击进入
-        if auto.click_element("./assets/images/screen/click_enter.png", "image", 0.9):
-            return True
-        # 游戏热更新，需要确认重启
-        auto.click_element("./assets/images/zh_CN/base/confirm.png", "image", 0.9, take_screenshot=False)
-        # 网络异常等问题，需要重新启动
-        auto.click_element("./assets/images/zh_CN/base/restart.png", "image", 0.9, take_screenshot=False)
-        # 适配国际服，需要点击“开始游戏”
-        auto.click_element("./assets/images/screen/start_game.png", "image", 0.9, take_screenshot=False)
-        # 适配B服，需要点击“登录”
-        auto.click_element("./assets/images/screen/bilibili_login.png", "image", 0.9, take_screenshot=False)
-        # 出现多账号登录页时，需要点击“登录其他账号”
-        auto.click_element("./assets/images/screen/login_switch_account.png", "image", 0.9, take_screenshot=False)
-        # 适配用户协议和隐私政策更新提示，需要点击“同意”
-        auto.click_element("./assets/images/screen/agree_update.png", "image", 0.9, take_screenshot=False)
-        # 登录过期
-        if auto.find_element("./assets/images/screen/account_and_password.png", "image", 0.9, take_screenshot=False):
-            if load_acc_and_pwd(gamereg_uid()) != (None, None):
-                log.info("检测到登录过期，尝试自动登录")
-                auto_login()
-            else:
-                raise Exception("账号登录过期")
-        if auto.find_element("./assets/images/screen/password_field.png", "image", 0.9, take_screenshot=False):
-            if load_acc_and_pwd(gamereg_uid()) != (None, None):
-                log.info("检测到登录过期，尝试自动登录")
-                auto_login_os()
-        return False
-
+    
     def cloud_game_check_and_enter():
         # 点击进入
         if auto.click_element("./assets/images/screen/click_enter.png", "image", 0.9):
@@ -101,50 +71,8 @@ def start_game():
             time.sleep(0.5)
             auto.press_key("esc")
 
-    def get_process_path(name):
-        # 通过进程名获取运行路径
-        for proc in psutil.process_iter(attrs=['pid', 'name']):
-            if name in proc.info['name']:
-                process = psutil.Process(proc.info['pid'])
-                return process.exe()
-        return None
 
-    def start_local_game():
-        if not starrail.switch_to_game():
-            if cfg.auto_set_resolution_enable:
-                starrail.change_resolution(1920, 1080)
-                starrail.change_auto_hdr("disable")
 
-            if cfg.auto_battle_detect_enable:
-                starrail.change_auto_battle(True)
-
-            if not starrail.start_game_process():
-                raise Exception("启动游戏失败")
-            time.sleep(10)
-
-            if not wait_until(lambda: starrail.switch_to_game(), 360):
-                starrail.restore_resolution()
-                starrail.restore_auto_hdr()
-                raise TimeoutError("切换到游戏超时")
-
-            time.sleep(10)
-            starrail.restore_resolution()
-            starrail.restore_auto_hdr()
-            starrail.check_resolution_ratio(1920, 1080)
-
-            if not wait_until(lambda: check_and_click_enter(), 600):
-                raise TimeoutError("查找并点击进入按钮超时")
-            time.sleep(10)
-            # 修复B服问题 https://github.com/moesnow/March7thAssistant/discussions/321#discussioncomment-10565807
-            auto.press_mouse()
-        else:
-            starrail.check_resolution_ratio(1920, 1080)
-            if cfg.auto_set_game_path_enable:
-                program_path = get_process_path(cfg.game_process_name)
-                if program_path is not None and program_path != cfg.game_path:
-                    cfg.set_value("game_path", program_path)
-                    log.info(f"游戏路径更新成功：{program_path}")
-            time.sleep(1)
 
     def start_cloud_game():
         if not cloud_game.start_game_process():
@@ -158,20 +86,15 @@ def start_game():
 
     for retry in range(MAX_RETRY):
         try:
-            if cfg.cloud_game_enable:
-                start_cloud_game()
-            else:
-                start_local_game()
+            start_cloud_game()
             if not wait_until(lambda: screen.get_current_screen(), 360):
                 raise TimeoutError("获取当前界面超时")
             break
         except Exception as e:
             log.error(f"尝试启动游戏时发生错误：{e}")
             # 确保在重试前停止游戏
-            if cfg.cloud_game_enable:
-                cloud_game.stop_game()
-            else:
-                starrail.stop_game()
+            cloud_game.stop_game()
+            
             if retry == MAX_RETRY - 1:
                 raise  # 如果是最后一次尝试，则重新抛出异常
 
@@ -179,17 +102,7 @@ def start_game():
 def stop(detect_loop=False):
     log.hr("停止运行", 0)
 
-    def play_audio():
-        log.info("开始播放音频")
-        try:
-            from playsound3 import playsound
-            playsound("./assets/audio/pa.mp3")
-            log.info("播放音频完成")
-        except Exception as e:
-            log.warning(f"播放音频时发生错误：{e}")
 
-    if cfg.play_audio:
-        play_audio()
 
     if detect_loop and cfg.after_finish == "Loop":
         after_finish_is_loop()
@@ -199,9 +112,8 @@ def stop(detect_loop=False):
         if cfg.after_finish in ["Exit", "Loop", "Shutdown", "Sleep", "Hibernate", "Restart", "Logoff", "TurnOffDisplay", "RunScript"]:
             get_game_controller().shutdown(cfg.after_finish)
         log.hr("完成", 2)
-        if cfg.after_finish not in ["Shutdown", "Sleep", "Hibernate", "Restart", "Logoff", "TurnOffDisplay", "RunScript"]:
-            if cfg.pause_after_success:
-                input("按回车键关闭窗口. . .")
+
+                
         sys.exit(0)
 
 
@@ -259,53 +171,9 @@ def notify_after_finish_not_loop():
     notif.notify(content=cfg.notify_template['FullTime'].format(power=current_power, time=future_time), level=NotificationLevel.ALL)
 
 
-def ensure_IME_lang_en():
-    """
-    切换输入法语言/键盘语言至英文
-
-    分两种情况，若系统有英语语言，则切换至英语语言，若没有，则切换输入法语言为英文
-    """
-    import win32api
-    import win32gui
-    from win32con import WM_INPUTLANGCHANGEREQUEST
-    EN = 0x0409
-    hwnd = win32gui.GetForegroundWindow()
-    result = win32api.SendMessage(hwnd, WM_INPUTLANGCHANGEREQUEST, 0, EN)
-    return result == 0
 
 
-def auto_login():
-    def auto_type(text):
-        ensure_IME_lang_en()
-        auto.secretly_write(text, interval=0.1)
-
-    account, password = load_acc_and_pwd(gamereg_uid())
-    if auto.click_element("./assets/images/screen/account_and_password.png", "image", 0.9, max_retries=10):
-        if auto.click_element("./assets/images/screen/account_field.png", "image", 0.9, max_retries=10):
-            auto_type(account)
-            if auto.click_element("./assets/images/screen/password_field.png", "image", 0.9, take_screenshot=False):
-                time.sleep(5)  # 等待切换到密码输入框
-                auto_type(password)
-                if auto.click_element("./assets/images/screen/agree_conditions.png", "image", 0.9, max_retries=10):
-                    if auto.click_element("./assets/images/screen/enter_game.png", "image", 0.9, max_retries=10):
-                        if auto.find_element("./assets/images/screen/welcome.png", "image", 0.9, max_retries=10):
-                            return
-    raise Exception("尝试自动登录失败")
 
 
-def auto_login_os():
-    def auto_type(text):
-        ensure_IME_lang_en()
-        time.sleep(1)
-        auto.secretly_write(text, interval=0.1)
 
-    account, password = load_acc_and_pwd(gamereg_uid())
-    if auto.click_element("./assets/images/screen/account_field_os.png", "image", 0.9, max_retries=10):
-        auto_type(account)
-        if auto.click_element("./assets/images/screen/password_field.png", "image", 0.9, take_screenshot=False):
-            time.sleep(5)  # 等待切换到密码输入框
-            auto_type(password)
-            if auto.click_element("./assets/images/screen/enter_game.png", "image", 0.9, max_retries=10):
-                if auto.find_element("./assets/images/screen/welcome.png", "image", 0.9, max_retries=10):
-                    return
-    raise Exception("尝试自动登录失败")
+

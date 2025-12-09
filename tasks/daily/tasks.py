@@ -18,7 +18,7 @@ class Tasks:
                 return json.load(file)
         except FileNotFoundError:
             log.error(f"配置文件不存在：{config_example_path}")
-            input("按回车键关闭窗口. . .")
+            
             sys.exit(1)
 
     def start(self):
