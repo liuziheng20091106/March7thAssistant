@@ -1,4 +1,3 @@
-import atexit
 import os
 import json
 import psutil
@@ -6,15 +5,10 @@ from time import sleep
 from selenium import webdriver
 from selenium.common.exceptions import TimeoutException, SessionNotCreatedException
 from selenium.webdriver.chrome.options import Options as ChromeOptions
-from selenium.webdriver.chrome.service import Service as ChromeService
-from selenium.webdriver.edge.options import Options as EdgeOptions
-from selenium.webdriver.edge.service import Service as EdgeService
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.selenium_manager import SeleniumManager
 from selenium.webdriver.remote.command import Command
-from selenium.common.exceptions import WebDriverException
 
 from module.config import Config
 from module.game.base import GameControllerBase
@@ -24,11 +18,7 @@ from module.logger import Logger
 class CloudGameController(GameControllerBase):
     COOKIE_PATH = "settings/cookies.enc"          # Cookies 保存地址（仅用于调试）
     GAME_URL = "https://sr.mihoyo.com/cloud"            # 游戏地址
-    BROWSER_TAG = "--march-7th-assistant-sr-cloud-game" # 自定义浏览器参数作为标识，用于识别哪些浏览器进程属于三月七小助手
-    BROWSER_INSTALL_PATH = os.path.join(os.getcwd(), "3rdparty", "WebBrowser") # 浏览器安装路径
-    INTEGRATED_BROWSER_VERSION = "140.0.7339.207"      # 浏览器版本
-    INTEGRATED_BROWSER_PATH = os.path.join(BROWSER_INSTALL_PATH, "chrome", "win64", INTEGRATED_BROWSER_VERSION, "chrome.exe")
-    INTEGRATED_DRIVER_PATH = os.path.join(BROWSER_INSTALL_PATH, "chromedriver", "win64", INTEGRATED_BROWSER_VERSION, "chromedriver.exe")
+    # BROWSER_TAG 已移除：不再标记浏览器进程用于复用/清理
     MAX_RETRIES = 3  # 网页加载重试次数，0=不重试
     PERFERENCES = {
         "profile": {
@@ -50,8 +40,9 @@ class CloudGameController(GameControllerBase):
         self.driver = None
         self.cfg = cfg
         self.logger = logger
-        atexit.register(self._clean_at_exit)
-    
+        # 已移除：退出时自动清理浏览器（不再复用/批量关闭由小助手启动的浏览器）
+        # atexit.register(self._clean_at_exit)
+
     def _wait_game_page_loaded(self, timeout=5) -> None:
         """等待云崩铁网页加载出来，这里以背景图是否加载出来为准"""
         if not self.driver:
@@ -87,30 +78,24 @@ class CloudGameController(GameControllerBase):
             "mobile": False
         })
     
-    def _prepare_browser_and_driver(self, browser_type: str, integrated: bool) -> str | str:
-        driver_path=None
-        browser_path=None
-        self.log_debug(f"browser_path = {browser_path}, driver_path = {driver_path}")
-        return browser_path, driver_path
     
     def _get_browser_arguments(self, headless) -> list[str]:
         args = [
-            self.BROWSER_TAG,   # 标记浏览器是由脚本启动
+            # 已移除浏览器标记参数（不再尝试查找/复用/关闭其他进程）
             "--disable-infobars",   # 去掉提示 "Chrome测试版仅适用于自动测试。" 和 "浏览器正由自动测试软件控制。"
             "--lang=zh-CN",     # 浏览器语言中文
             "--log-level=3",    # 浏览器日志等级为error
             "--headless",
-            "--no-sandbox"
-            "--disable-dev-shm-usage"
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
             "--disable-gpu",
             "--window-size=1920,1080",
             "--start-maximized",
             "-–single-process",
-            "--user-data-dir=\"\\m7a\\chromedata\\\"",  # 使用指定用户数据目录
+            "--user-data-dir=/chromedata/",  # 使用指定用户数据目录
             f"--force-device-scale-factor={float(self.cfg.browser_scale_factor)}",  # 设置缩放
             f"--app={self.GAME_URL}",   # 以应用模式启动
             "--disable-blink-features=AutomationControlled",  # 去除自动化痕迹，防止被人机验证
-            f"--remote-debugging-port={self.cfg.browser_debug_port}",   # 调试端口，可用于复用浏览器
         ]
         
         return args
@@ -125,63 +110,69 @@ class CloudGameController(GameControllerBase):
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
         chrome_options.add_experimental_option('useAutomationExtension', False)
 '''
-
+    def check_first_run(driver, target_cookie_name=None):
+        """
+        检查是否为首次运行
+        :param driver: WebDriver实例
+        :param target_cookie_name: 可选的特定Cookie名称
+        :return: True表示首次运行，False表示非首次
+        """
+        cookies = driver.get_cookies()
+        
+        if target_cookie_name:
+            # 检查特定Cookie是否存在
+            for cookie in cookies:
+                if cookie['name'] == target_cookie_name:
+                    return False
+            return True
+        else:
+            # 检查所有Cookie
+            return len(cookies) == 0
     def _connect_or_create_browser(self, headless=False) -> None:
         """尝试连接到现有的（由小助手启动的）浏览器，如果没有，那就创建一个"""
         browser_type = "chrome"
         integrated = self.cfg.browser_type=="integrated"
         first_run = False
-        browser_path, driver_path = self._prepare_browser_and_driver(browser_type, integrated)
         
-        if not os.path.exists("\\m7a\\chromedata\\"):
-            first_run = True
         
+        # 通过远程 Selenium Hub（容器名为 chrome，端口 4444）创建会话
         if browser_type == "chrome":
             options = ChromeOptions()
-            service = ChromeService(executable_path=driver_path, log_path=os.devnull)
-            webdriver_type = webdriver.Chrome
+            service = None
+            webdriver_type = webdriver.Remote
+            executor_url = "http://chrome:4444/wd/hub"
         
-        # 记录 driver 可执行路径和 service，以便后续清理 chromedriver 进程
-        self.driver_path = driver_path
-        self._webdriver_service = service
+        # 记录（为了兼容旧逻辑），但远程模式下一般无本地 driver_path/service
         
-        # 关掉 headless 不匹配的浏览器，防止端口冲突
-        if self.close_all_m7a_browser(headless=not headless):
-            self.log_info(f"已关闭正在运行的{'前台' if headless else '后台'}浏览器")
-        if self.get_m7a_browsers(headless=headless):
-            # 如果发现已经有浏览器，尝试直接连接
-            try:
-                options.debugger_address = f"localhost:{self.cfg.browser_debug_port}"
-                self.driver = webdriver_type(service=service, options=options)
-                self.log_info("已连接到现有浏览器")
-                return # 连接成功，直接返回
-            except Exception:
-                self.log_info(f"连接现有浏览器失败")
-                self.close_all_m7a_browser() # 连接失败，关闭所有浏览器
-                options = None
-            
-        self.log_info(f"正在启动 {browser_type} 浏览器")
-        options.binary_location = browser_path
-        options.add_experimental_option("prefs", self.PERFERENCES)  # 允许云游戏权限权限
+        self.log_info(f"正在通过远程 Selenium Hub 启动 {browser_type} 浏览器（{executor_url}）")
 
-        # 设置浏览器启动参数
+        options.add_experimental_option("prefs", self.PERFERENCES)  # 允许云游戏权限
+        # 添加参数
         for arg in self._get_browser_arguments(headless=headless):
             options.add_argument(arg)
         
         try:
-            self.driver = webdriver_type(service=service, options=options)
+            # 使用 Remote 连接到 Selenium Hub
+            self.driver = webdriver_type(command_executor=executor_url, options=options)
         except SessionNotCreatedException as e:
             self.log_error(f"浏览器启动失败: {e}")
             self.log_error("如果设置了浏览器启动参数，请去掉所有浏览器启动参数后重试")
             self.log_error("如果仍然存在问题，请更换浏览器重试")
             raise Exception("浏览器启动失败")
         
+        if self.check_first_run(self.driver, "session_id"):
+            first_run = True
+            # 设置初始Cookie
+            
+        
         if first_run or not self.cfg.browser_persistent_enable:
             self._load_initial_local_storage()
+            self.driver.add_cookie({"name": "first_run", "value": "completed"})
         if self.cfg.auto_battle_detect_enable:
             self.change_auto_battle(True) 
         if self.cfg.browser_dump_cookies_enable:
             self._load_cookies()
+            self.driver.add_cookie({"name": "first_run", "value": "completed"})
         self._refresh_page()
 
     def _restart_browser(self, headless=False) -> None:
@@ -347,124 +338,27 @@ class CloudGameController(GameControllerBase):
             self.log_error(f"等待排队异常: {e}")
             return False
     
-    def _clean_at_exit(self) -> None:
-        """当脚本退出时，关闭所有 headless 浏览器"""
-        if self.close_all_m7a_browser(headless=True):
-            self.log_info("已关闭所有后台浏览器")
-
-        # 退出时再尝试清理 chromedriver 进程（防止残留）
-        try:
-            closed = self._terminate_chromedriver_processes()
-            if closed:
-                self.log_info("已关闭残留的 chromedriver 进程")
-        except Exception as e:
-            self.log_warning(f"退出时清理 chromedriver 进程失败: {e}")
-
     def is_integrated_browser_downloaded(self) -> bool:
         """当前是否已经下载内置浏览器"""
         return True
     
-    def get_m7a_browsers(self, headless=None) -> list[psutil.Process]:
-        """
-        获取由小助手打开的浏览器
-        headless: None 所有，True 仅 headless 无窗口浏览器，False 仅有窗口浏览器
-        
-        return 浏览器的 Process
-        """
-        all_proc = []
-        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
-            if proc.info['name'] in ('chrome.exe', 'msedge.exe'):
-                cmdline = proc.info['cmdline']
-                if self.BROWSER_TAG in cmdline and (headless is None or (headless and "--headless=new" in cmdline)):
-                    all_proc.append(proc)
-        return all_proc
-                    
-    def close_all_m7a_browser(self, headless=None) -> list[psutil.Process]:
-        """
-        关闭所有由小助手打开的浏览器
-        headless: None 所有，True 仅 headless 无窗口浏览器，False 仅 headful 有窗口浏览器
-        
-        return 被关闭浏览器的 Process
-        """
-        closed_proc = []
-        for proc in self.get_m7a_browsers(headless=headless) or []:
+    def stop_game(self) -> bool:
+        """退出游戏，关闭浏览器"""
+        if self.driver:
             try:
-                proc.terminate()
-                closed_proc.append(proc)
+                self.driver.execute(Command.CLOSE)
+                self.log_info("关闭浏览器成功")
             except Exception:
                 pass
-
-        # 也尝试关闭与当前 driver_path 对应的 chromedriver 进程
-        try:
-            chromedrivers = []
-            for proc in psutil.process_iter(['pid', 'name', 'exe', 'ppid']):
-                try:
-                    if proc.info['name'] and proc.info['name'].lower() == 'chromedriver.exe':
-                        chromedrivers.append(proc)
-                except Exception:
-                    continue
-
-            for proc in chromedrivers:
-                try:
-                    exe_path = None
-                    try:
-                        exe_path = proc.info.get('exe') or proc.exe()
-                    except Exception:
-                        exe_path = None
-
-                    # 如果我们有记录的 driver_path，优先匹配可执行文件路径
-                    if hasattr(self, 'driver_path') and self.driver_path and exe_path and os.path.normcase(exe_path) == os.path.normcase(self.driver_path):
-                        proc.terminate()
-                        closed_proc.append(proc)
-                    else:
-                        # 否则，若 chromedriver 的父进程是当前进程，认为是残留并终止
-                        if proc.info.get('ppid') == os.getpid():
-                            proc.terminate()
-                            closed_proc.append(proc)
-                except Exception:
-                    continue
-        except Exception:
-            pass
-
-        return closed_proc
-
-    def _terminate_chromedriver_processes(self) -> list[psutil.Process]:
-        """单独清理 chromedriver 进程并返回被关闭的进程列表"""
-        closed = []
-        for proc in psutil.process_iter(['pid', 'name', 'exe', 'ppid']):
             try:
-                if proc.info['name'] and proc.info['name'].lower() == 'chromedriver.exe':
-                    exe_path = None
-                    try:
-                        exe_path = proc.info.get('exe') or proc.exe()
-                    except Exception:
-                        exe_path = None
-
-                    if hasattr(self, 'driver_path') and self.driver_path and exe_path and os.path.normcase(exe_path) == os.path.normcase(self.driver_path):
-                        proc.terminate()
-                        closed.append(proc)
-                    elif proc.info.get('ppid') == os.getpid():
-                        proc.terminate()
-                        closed.append(proc)
+                self.driver.quit()
             except Exception:
-                continue
-        return closed
-        
-    def try_dump_page(self, dump_dir="logs/webdump") -> None:
-        if self.driver:
-            os.makedirs(dump_dir, exist_ok=True)
-            from datetime import datetime
-            ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                pass
+            self.driver = None
+            
+        # 已移除：不再在 stop_game 中额外尝试关闭由小助手启动的其它浏览器进程
+        return True
 
-            png_path = os.path.join(dump_dir, f"{ts}.png")
-            self.driver.save_screenshot(png_path)
-
-            html_path = os.path.join(dump_dir, f"{ts}.html")
-            with open(html_path, "w", encoding="utf-8") as f:
-                f.write(self.driver.page_source)
-
-            self.log_error(f"相关页面和截图已经保存到：{dump_dir}")
-    
     def start_game_process(self) -> bool:
         """启动浏览器进程"""
         try:
@@ -553,16 +447,12 @@ class CloudGameController(GameControllerBase):
                 self.log_info("关闭浏览器成功")
             except Exception:
                 pass
-            self.driver.quit()
+            try:
+                self.driver.quit()
+            except Exception:
+                pass
             self.driver = None
             
-        # 清理所有未正常退出的浏览器
-        try:
-            if self.close_all_m7a_browser():
-                self.log_info("检测到由小助手启动的浏览器，已成功关闭")
-        except Exception as e:
-            self.log_warning(f"检测到由小助手启动的浏览器，关闭失败: {e}")
-            return False
-        
+        # 已移除：不再在 stop_game 中额外尝试关闭由小助手启动的其它浏览器进程
         return True
-            
+
