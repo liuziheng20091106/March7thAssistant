@@ -4,8 +4,8 @@ from module.screen import screen
 from utils.date import Date
 from tasks.daily.photo import Photo
 from tasks.weekly.currency_wars import CurrencyWars
-from tasks.daily.fight import Fight
-from tasks.weekly.universe import Universe
+#from tasks.daily.fight import Fight
+#from tasks.weekly.universe import Universe
 import tasks.reward as reward
 import tasks.activity as activity
 from tasks.daily.synthesis import Synthesis
@@ -60,7 +60,7 @@ class Daily:
                 log.info("每日实训尚未刷新")
         else:
             log.info("每日实训未开启")
-
+        '''
         if cfg.currencywars_enable:
             if Date.is_next_mon_x_am(cfg.currencywars_timestamp, cfg.refresh_hour):
                 war = CurrencyWars()
@@ -107,7 +107,7 @@ class Daily:
                     log.info("模拟宇宙/差分宇宙未开启")
             else:
                 log.info("模拟宇宙/差分宇宙尚未刷新")
-
+        '''
         if Date.is_next_mon_x_am(cfg.forgottenhall_timestamp, cfg.refresh_hour):
             if cfg.forgottenhall_enable:
                 challenge.start("memoryofchaos")
@@ -186,8 +186,8 @@ class Daily:
                 "累计触发弱点击破效果5次": (lambda: challenge.start_memory_one(1), 100),
                 "利用弱点进入战斗并获胜3次": (lambda: challenge.start_memory_one(3), 100),
                 "施放终结技造成制胜一击1次": (lambda: challenge.start_memory_one(1), 100),
-                "通关「模拟宇宙」（任意世界）的1个区域": (lambda: Universe.run_daily(), 500),
-                "完成1次「差分宇宙」或「模拟宇宙」": (lambda: Universe.run_daily(), 500),
+                #"通关「模拟宇宙」（任意世界）的1个区域": (lambda: Universe.run_daily(), 500),
+                #"完成1次「差分宇宙」或「模拟宇宙」": (lambda: Universe.run_daily(), 500),
                 "完成1次「差分宇宙」或「货币战争」": (lambda: False, 500)  # 没有实现但有可能已完成,只检测是否完成
             }
             # 用来统计实训分数

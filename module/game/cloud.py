@@ -92,7 +92,7 @@ class CloudGameController(GameControllerBase):
             "--window-size=1920,1080",
             "--start-maximized",
             "-–single-process",
-            "--user-data-dir=/chromedata/",  # 使用指定用户数据目录
+            #"--user-data-dir=/chromedata/",  # 使用指定用户数据目录
             f"--force-device-scale-factor={float(self.cfg.browser_scale_factor)}",  # 设置缩放
             f"--app={self.GAME_URL}",   # 以应用模式启动
             "--disable-blink-features=AutomationControlled",  # 去除自动化痕迹，防止被人机验证
