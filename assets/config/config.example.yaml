@@ -17,9 +17,6 @@ exit_after_failure: false # 是否在失败后直接退出。true 直接退出�
 # 任务完成后操作
 after_finish: None # 任务完成后的操作，可选值："None"（无操作）, "Exit"（退出程序）, "Loop"（循环执行）, "Shutdown"（关机）, "Sleep"（睡眠）, "Hibernate"（休眠）, "Restart"（重启）, "Logoff"（注销）, "TurnOffDisplay"（关闭显示器）, "RunScript"（运行脚本）。
 
-# 循环运行所需开拓力
-power_limit: 160 # 设置循环运行模式时所需的最低开拓力。
-
 # 任务完成后是否播放提示音
 play_audio: false # true 播放，false 不播放。
 
@@ -36,7 +33,6 @@ pypi_mirror_urls:
 game_title_name: 崩坏：星穹铁道 # 游戏窗口标题。
 game_process_name: StarRail # 游戏进程名。
 game_path: C:\Program Files\Star Rail\Game\StarRail.exe # 游戏安装路径。
-script_path: C:\Path\to\your\Script.bat
 
 # 云崩铁配置
 cloud_game_enable: False # 是否启动云游戏
@@ -59,6 +55,11 @@ browser_persistent_enable: True # 是否允许浏览器保存数据（登录状�
 browser_scale_factor: 1.0 # 浏览器的缩放比，如果云游戏画面过小/过大，可调整这个选项
 browser_launch_argument: [] # 浏览器启动的额外参数，如 "--auto-open-devtools-for-tabs"
 browser_debug_port: 9222 # 浏览器 Debug 端口，应确保该端口不被占用
+browser_download_use_mirror: True # 是否使用镜像下载浏览器和驱动
+browser_mirror_urls:
+  chrome: https://registry.npmmirror.com/-/binary/chrome-for-testing/
+  chromedriver: https://registry.npmmirror.com/-/binary/chrome-for-testing/
+  edgedriver: https://registry.npmmirror.com/-/binary/edgedriver/
 
 # 副本设置
 instance_type: 拟造花萼（金） # 设置副本类型，可选值：拟造花萼（金）、拟造花萼（赤）、凝滞虚影、侵蚀隧洞、饰品提取。
@@ -77,7 +78,7 @@ instance_names_challenge_count:
   侵蚀隧洞: 6
   饰品提取: 6
   历战余响: 3 # 配置各副本类型的连续挑战次数。
-max_calyx_per_round_num_of_attempts: 6 # 设置每轮拟造花萼挑战次数。
+tp_before_instance: false # 是否在进入副本前进行传送至任意锚点。true 传送，false 不传送。
 
 # 培养目标设置
 build_target_enable: false # 是否启用培养目标。
@@ -88,7 +89,7 @@ break_down_level_four_relicset: false # 完成侵蚀隧洞、饰品提取、历�
 
 # 队伍配置
 instance_team_enable: false # 是否在打副本时自动切换队伍。true 开启，false 关闭。
-instance_team_number: "5" # 自动切换的队伍编号。
+instance_team_number: "6" # 自动切换的队伍编号。
 
 # 合成设置
 merge_immersifier: False # 是否优先合成沉浸器。true 开启，false 关闭。
@@ -97,6 +98,10 @@ merge_immersifier_limit: "12" # 沉浸器上限。
 # 开拓力使用设置
 use_reserved_trailblaze_power: False # 是否使用后备开拓力。true 使用，false 不使用。
 use_fuel: False # 是否使用燃料。true 使用，false 不使用。
+
+# 体力计划设置
+# 体力计划列表，每项包含副本类型、副本名称和剩余次数，例如：[["拟造花萼（金）", "回忆之蕾", 10], ["侵蚀隧洞", "睿治之径", 5]]
+power_plan: []
 
 # 历战余响设置
 echo_of_war_enable: false # 是否体力优先完成3次「历战余响」。true 开启，false 关闭。
@@ -119,7 +124,7 @@ borrow_friends:
     - ""
   - - None
     - ""
-borrow_scroll_times: 5 # 支援列表滚动查找次数
+borrow_scroll_times: 10 # 支援列表滚动查找次数
 
 # 奖励领取设置
 reward_enable: true # 是否启用领取奖励功能。true 开启，false 关闭。
@@ -127,7 +132,7 @@ reward_dispatch_enable: true # 是否领取委托奖励。true 开启，false �
 reward_mail_enable: true # 是否领取邮件奖励。true 开启，false 关闭。
 reward_assist_enable: true # 是否领取支援奖励。true 开启，false 关闭。
 reward_quest_enable: true # 是否领取每日实训奖励。true 开启，false 关闭。
-reward_srpass_enable: true # 是否领取无名勋礼。true 开启，false 关闭。
+reward_srpass_enable: true # 是否领取无名勋礼奖励。true 开启，false 关闭。
 
 # 日常任务设置
 daily_enable: true # 是否启用日常任务。true 开启，false 关闭。
@@ -155,24 +160,14 @@ activity_realmofthestrange_enable: false # 是否启用异器盈界活动。true
 activity_planarfissure_enable: false # 是否启用位面分裂活动。true 开启，false 关闭。
 
 # 货币战争配置
-currencywars_enable: false # 是否启用货币战争功能。true 开启，false 关闭。
+currencywars_enable: false # 是否启用「货币战争」积分奖励。true 开启，false 关闭。
 currencywars_type: overclock # 货币战争模式，可选值："normal"（标准博弈）或 "overclock"（超频博弈）。
-currencywars_timestamp: 0 # 上次检测到完成货币战争积分奖励的时间戳，用于记录和控制运行频率。
-
-# 锄大地配置
-fight_enable: false # 是否启用锄大地功能。true 开启，false 关闭。
-fight_operation_mode: exe # 锄大地运行方式，可选 "源码"（source）或 "集成"（exe）。
-fight_path: .\3rdparty\Fhoe-Rail # 锄大地路径，指向锄大地脚本或程序的位置。
-fight_timeout: 6 # 锄大地超时时间（单位：小时），设置脚本或程序的最长运行时间。
-fight_team_enable: false # 是否在锄大地时自动切换队伍。true 开启，false 关闭。
-fight_team_number: "6" # 自动切换到的队伍编号。
-fight_requirements: false # 是否已安装锄大地依赖。true 表示已安装，false 表示未安装或需要重新安装。
-fight_timestamp: 0 # 上次运行锄大地的时间戳，用于记录和控制运行频率。
-fight_allow_map_buy: 不配置 # 购买代币与过期邮包
-fight_allow_snack_buy: 不配置 # 购买秘技零食并合成零食
-fight_main_map: "0" # 优先星球 {"空间站": "1", "雅利洛": "2", "仙舟": "3", "匹诺康尼": "4", "翁法罗斯": "5"}, "不配置": "0"
+currencywars_timestamp: 0 # 上次检测到完成差分宇宙积分奖励的时间戳，用于记录和控制运行频率。
 
 # 模拟宇宙配置
+weekly_divergent_enable: false # 是否启用「差分宇宙」积分奖励。true 开启，false 关闭。
+weekly_divergent_type: cycle # 积分奖励时执行的差分宇宙模式，可选值："normal"（常规演算）或 "cycle"（周期演算）。
+weekly_divergent_timestamp: 0 # 上次检测到完成差分宇宙积分奖励的时间戳，用于记录和控制运行频率。
 universe_enable: false # 是否启用模拟宇宙功能。true 开启，false 关闭。
 universe_operation_mode: exe # 模拟宇宙运行方式，可选 "源码"（source）或 "集成"（exe）。
 universe_category: divergent # 模拟宇宙类型，可选 "差分宇宙"（divergent）或 "模拟宇宙"（universe）。
@@ -184,10 +179,23 @@ universe_path: .\3rdparty\Auto_Simulated_Universe # 模拟宇宙路径，指向�
 universe_timeout: 20 # 模拟宇宙超时时间（单位：小时），设置脚本或程序的最长运行时间。
 universe_requirements: false # 是否已安装模拟宇宙依赖。true 表示已安装，false 表示未安装或需要重新安装。
 universe_timestamp: 0 # 上次运行模拟宇宙的时间戳，用于记录和控制运行频率。
-weekly_divergent_enable: false # 是否启用每两周优先运行一次差分宇宙。true 开启，false 关闭。
-weekly_divergent_timestamp: 0 # 上次运行每周一次差分宇宙的时间戳。
-universe_fate: "不配置" # 模拟宇宙使用的命途
+divergent_type: normal # 差分宇宙模式，可选值："normal"（常规演算）或 "cycle"（周期演算）。
+divergent_team_type: 终结技 # 差分宇宙队伍类型，可选值：追击/dot/终结技/击破/盾反
+universe_fate: 不配置 # 模拟宇宙使用的命途
 universe_difficulty: 0 # 模拟宇宙使用的难度
+
+# 锄大地配置
+fight_enable: false # 是否启用锄大地功能。true 开启，false 关闭。
+fight_operation_mode: exe # 锄大地运行方式，可选 "源码"（source）或 "集成"（exe）。
+fight_path: .\3rdparty\Fhoe-Rail # 锄大地路径，指向锄大地脚本或程序的位置。
+fight_timeout: 12 # 锄大地超时时间（单位：小时），设置脚本或程序的最长运行时间。
+fight_team_enable: false # 是否在锄大地时自动切换队伍。true 开启，false 关闭。
+fight_team_number: "7" # 自动切换到的队伍编号。
+fight_requirements: false # 是否已安装锄大地依赖。true 表示已安装，false 表示未安装或需要重新安装。
+fight_timestamp: 0 # 上次运行锄大地的时间戳，用于记录和控制运行频率。
+fight_allow_map_buy: 不配置 # 购买代币与过期邮包
+fight_allow_snack_buy: 不配置 # 购买秘技零食并合成零食
+fight_main_map: "0" # 优先星球 {"空间站": "1", "雅利洛": "2", "仙舟": "3", "匹诺康尼": "4", "翁法罗斯": "5"}, "不配置": "0"
 
 # 忘却之庭配置
 forgottenhall_enable: false # 是否启用混沌回忆功能。true 开启，false 关闭。
@@ -282,13 +290,19 @@ auto_set_resolution_enable: true # 是否启用自动修改分辨率功能。tru
 auto_set_game_path_enable: true # 是否启用自动配置游戏路径。true 开启，false 关闭。
 
 # 循环模式
-loop_mode: power # 可选值："power"（根据开拓力）, "scheduled"（定时任务）
+loop_mode: scheduled # 可选值："power"（根据开拓力）, "scheduled"（定时任务）
 
 # 指定运行时间
 scheduled_time: 4:00
 
+# 循环运行所需开拓力
+power_limit: 160 # 设置循环运行模式时所需的最低开拓力。
+
 # 游戏刷新时间设置
 refresh_hour: 4 # 设置游戏每日刷新的时间（24小时制）。
+
+# 任务完成后执行脚本
+script_path: C:\Path\to\your\Script.bat
 
 # 游戏内按键设置
 hotkey_technique: e # 设置游戏内使用秘技的按键。

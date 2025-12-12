@@ -22,17 +22,24 @@ import datetime
 class Daily:
     @staticmethod
     def start():
-        activity.start()
-
-        # 获取培养目标
+        # 获取培养目标（在活动前初始化，以便活动可以使用培养目标）
         if cfg.build_target_enable:
             BuildTarget.init_build_targets()
 
         # 在日常任务中检查是否使用支援角色
-        Daily.lookup()
+        if cfg.daily_enable:
+            if Date.is_next_x_am(cfg.last_run_timestamp, cfg.refresh_hour):
+                Daily.lookup()
+            else:
+                log.info("每日实训尚未刷新")
+        else:
+            log.info("每日实训未开启")
+
+        activity.start()
+
         # 优先历战余响
-        if Date.is_next_mon_x_am(cfg.echo_of_war_timestamp, cfg.refresh_hour):
-            if cfg.echo_of_war_enable:
+        if cfg.echo_of_war_enable:
+            if Date.is_next_mon_x_am(cfg.echo_of_war_timestamp, cfg.refresh_hour):
                 # 注意，这里并没有解决每天开始时间。也就是4点开始。按照真实时间进行执行
                 isoweekday = datetime.date.today().isoweekday()
                 if isoweekday >= cfg.echo_of_war_start_day_of_week:
@@ -40,57 +47,66 @@ class Daily:
                 else:
                     log.info(f"历战余响设置周{cfg.echo_of_war_start_day_of_week}后开始执行，当前为周{isoweekday}, 跳过执行")
             else:
-                log.info("历战余响未开启")
+                log.info("历战余响尚未刷新")
         else:
-            log.info("历战余响尚未刷新")
+            log.info("历战余响未开启")
 
         Power.run()
 
         if cfg.daily_enable:
-            Daily.run()
+            if Date.is_next_x_am(cfg.last_run_timestamp, cfg.refresh_hour):
+                Daily.run()
+            else:
+                log.info("每日实训尚未刷新")
+        else:
+            log.info("每日实训未开启")
 
-        if Date.is_next_mon_x_am(cfg.currencywars_timestamp, cfg.refresh_hour):
-            if cfg.currencywars_enable:
+        if cfg.currencywars_enable:
+            if Date.is_next_mon_x_am(cfg.currencywars_timestamp, cfg.refresh_hour):
                 war = CurrencyWars()
                 screen.change_to("currency_wars_homepage")
                 if not war.check_currency_wars_score():
                     war.start()
             else:
-                log.info("货币战争未开启")
+                log.info("「货币战争」积分奖励尚未刷新")
         else:
-            log.info("货币战争尚未刷新")
+            log.info("「货币战争」积分奖励未开启")
 
-        if Date.is_next_x_am(cfg.fight_timestamp, cfg.refresh_hour):
-            if cfg.fight_enable:
+        if cfg.fight_enable:
+            if Date.is_next_x_am(cfg.fight_timestamp, cfg.refresh_hour):
                 Fight.start()
             else:
-                log.info("锄大地未开启")
+                log.info("锄大地尚未刷新")
         else:
-            log.info("锄大地尚未刷新")
+            log.info("锄大地未开启")
 
         if cfg.weekly_divergent_enable:
-            if Date.is_next_2weeks_mon_x_am(cfg.weekly_divergent_timestamp, cfg.refresh_hour):
-                if Universe.start(1, False, "divergent"):
-                    cfg.save_timestamp("weekly_divergent_timestamp")
+            if Date.is_next_mon_x_am(cfg.weekly_divergent_timestamp, cfg.refresh_hour):
+                screen.change_to("divergent_main")
+                if not Universe.check_universe_score():
+                    if Universe.start(1, False, "divergent"):
+                        cfg.save_timestamp("weekly_divergent_timestamp")
             else:
-                log.info("每两周一次差分宇宙尚未刷新")
+                log.info("「差分宇宙」积分奖励尚未刷新")
+        else:
+            log.info("「差分宇宙」积分奖励未开启")
 
         if cfg.universe_frequency == "weekly":
             if Date.is_next_mon_x_am(cfg.universe_timestamp, cfg.refresh_hour):
                 if cfg.universe_enable:
                     Universe.start()
                 else:
-                    log.info("模拟宇宙未开启")
+                    log.info("模拟宇宙/差分宇宙未开启")
             else:
-                log.info("模拟宇宙尚未刷新")
+                log.info("模拟宇宙/差分宇宙尚未刷新")
         elif cfg.universe_frequency == "daily":
             if Date.is_next_x_am(cfg.universe_timestamp, cfg.refresh_hour):
                 if cfg.universe_enable:
                     Universe.start()
                 else:
-                    log.info("模拟宇宙未开启")
+                    log.info("模拟宇宙/差分宇宙未开启")
             else:
-                log.info("模拟宇宙尚未刷新")
+                log.info("模拟宇宙/差分宇宙尚未刷新")
 
         if Date.is_next_mon_x_am(cfg.forgottenhall_timestamp, cfg.refresh_hour):
             if cfg.forgottenhall_enable:
@@ -118,15 +134,15 @@ class Daily:
 
     @staticmethod
     def lookup():
-        log.hr("开始查询日常任务完成情况", 0)
+        log.hr("开始查询日常任务完成情况", 1)
         screen.change_to("guide2")
 
         tasks = Tasks("./assets/config/task_mappings.json")
         tasks.start()
 
         cfg.set_value("daily_tasks", tasks.daily_tasks)
-        log.hr("日常任务查询完成", 2)
-    
+        log.hr("完成", 2)
+
     @staticmethod
     def run():
         log.hr("开始日常任务", 0)
@@ -134,28 +150,24 @@ class Daily:
         empty_tasks = []
         cfg.set_value("daily_tasks", empty_tasks)
         # 再次查任务列表，用于检查清体力后完成了什么
-        if Date.is_next_x_am(cfg.last_run_timestamp, cfg.refresh_hour): 
-            Daily.lookup()
-            cfg.save_timestamp("last_run_timestamp")
-        else:
-            log.info("日常任务尚未刷新")
+        Daily.lookup()
 
         if len(cfg.daily_tasks) > 0:
             task_functions = {
                 "登录游戏": (lambda: True, 100),
-                "派遣1次委托": (lambda: False, 100), # 没有实现但有可能已完成,只检测是否完成
-                "累计消耗120点开拓力": (lambda: False, 200), # 没有实现但有可能已完成,只检测是否完成
-                "使用支援角色并获得战斗胜利1次": (lambda: False, 200), # 没有实现但有可能已完成,只检测是否完成
-                "完成1次「拟造花萼（金）」":(lambda: False, 100),
-                "完成1次「拟造花萼（赤）」":(lambda: False, 100),
-                "完成1次「凝滞虚影」":(lambda: False, 100),
-                "完成1次「侵蚀隧洞」":(lambda: False, 100),
-                "完成1次「历战余响」":(lambda: False, 100),
-                "将任意角色等级提升1次":(lambda: False, 100),
-                "将任意遗器等级提升1次":(lambda: False, 100),
-                "将任意光锥等级提升1次":(lambda: False, 100),
-                "分解任意1件遗器":(lambda: False, 100),
-                "完成1个日常任务":(lambda: False, 100),
+                "派遣1次委托": (lambda: False, 100),  # 没有实现但有可能已完成,只检测是否完成
+                "累计消耗120点开拓力": (lambda: False, 200),  # 没有实现但有可能已完成,只检测是否完成
+                "使用支援角色并获得战斗胜利1次": (lambda: False, 200),  # 没有实现但有可能已完成,只检测是否完成
+                "完成1次「拟造花萼（金）」": (lambda: False, 100),
+                "完成1次「拟造花萼（赤）」": (lambda: False, 100),
+                "完成1次「凝滞虚影」": (lambda: False, 100),
+                "完成1次「侵蚀隧洞」": (lambda: False, 100),
+                "完成1次「历战余响」": (lambda: False, 100),
+                "将任意角色等级提升1次": (lambda: False, 100),
+                "将任意遗器等级提升1次": (lambda: False, 100),
+                "将任意光锥等级提升1次": (lambda: False, 100),
+                "分解任意1件遗器": (lambda: False, 100),
+                "完成1个日常任务": (lambda: False, 100),
                 "累计消灭20个敌人": (lambda: challenge.start_memory_one(2), 100),
                 "使用1次「万能合成机」": (lambda: Synthesis.material(), 100),
                 # "合成1次消耗品": lambda: Synthesis.consumables(),
@@ -176,7 +188,7 @@ class Daily:
                 "施放终结技造成制胜一击1次": (lambda: challenge.start_memory_one(1), 100),
                 "通关「模拟宇宙」（任意世界）的1个区域": (lambda: Universe.run_daily(), 500),
                 "完成1次「差分宇宙」或「模拟宇宙」": (lambda: Universe.run_daily(), 500),
-                "完成1次「差分宇宙」或「货币战争」": (lambda: False, 500) # 没有实现但有可能已完成,只检测是否完成
+                "完成1次「差分宇宙」或「货币战争」": (lambda: False, 500)  # 没有实现但有可能已完成,只检测是否完成
             }
             # 用来统计实训分数
             current_score = 0
@@ -186,7 +198,7 @@ class Daily:
             for key, value in cfg.daily_tasks.items():
                 state = red("待完成") if value else green("已完成")
                 if not value and key in task_functions:
-                    _ , score = task_functions[key]
+                    _, score = task_functions[key]
                     done_count = done_count + 1
                     current_score += score
                     score_text = yellow(f" (+{score}分)")
@@ -194,12 +206,16 @@ class Daily:
                 else:
                     log.info(f"{key}: {state}")
                     pass
-                
+
             log.info(f"已完成：{yellow(f'{done_count}/{len(cfg.daily_tasks)}')}")
             log.info(f"当前累计分数：{yellow(f'{current_score}/{TARGET_SCORE}')}")
             for task_name, (task_function, score) in task_functions.items():
                 if current_score >= TARGET_SCORE:
                     log.info(f"实训分数已达标")
+                    # 确定完成后提前领取奖励
+                    reward.start_specific("quest")
+                    # 记录完成时间
+                    cfg.save_timestamp("last_run_timestamp")
                     break
                 if task_name in cfg.daily_tasks and cfg.daily_tasks[task_name]:
                     if task_function():
@@ -210,5 +226,5 @@ class Daily:
                     else:
                         log.info(f"任务无法完成: {task_name}")
             # 清空日常任务，避免由于提前结束，而cfg中残留未完成任务导致出现异常
-            cfg.set_value("daily_tasks", empty_tasks) 
+            cfg.set_value("daily_tasks", empty_tasks)
         log.hr("完成", 2)
