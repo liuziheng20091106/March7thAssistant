@@ -9,14 +9,23 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.remote.command import Command
+from selenium.common.exceptions import WebDriverException
+from multiprocessing.managers import BaseManager
+import time
+import threading
+from threading import Event
 
 from module.config import Config
 from module.game.base import GameControllerBase
 from module.logger import Logger
 #from utils.encryption import wdp_encrypt, wdp_decrypt
 
+# 模块级子进程函数：通过 BaseManager 连接到父进程暴露的 controller 代理，
+# 周期性检查 is_in_game，从 True->False 时调用 _save_local_storage 并退出。
+
 class CloudGameController(GameControllerBase):
-    COOKIE_PATH = "settings/cookies.enc"          # Cookies 保存地址（仅用于调试）
+    COOKIE_PATH = "settings/cookies.enc"          # Cookies 保存地址
+    localStorage_PATH = "settings/local_storage.enc"  # localStorage 保存地址
     GAME_URL = "https://sr.mihoyo.com/cloud"            # 游戏地址
     # BROWSER_TAG 已移除：不再标记浏览器进程用于复用/清理
     MAX_RETRIES = 3  # 网页加载重试次数，0=不重试
@@ -132,10 +141,8 @@ class CloudGameController(GameControllerBase):
         """尝试连接到现有的（由小助手启动的）浏览器，如果没有，那就创建一个"""
         browser_type = "chrome"
         integrated = self.cfg.browser_type=="integrated"
-        first_run = False
+        browser_path, driver_path = self._prepare_browser_and_driver(browser_type, integrated)
         
-        
-        # 通过远程 Selenium Hub（容器名为 chrome，端口 4444）创建会话
         if browser_type == "chrome":
             options = ChromeOptions()
             service = None
@@ -160,26 +167,126 @@ class CloudGameController(GameControllerBase):
             self.log_error("如果仍然存在问题，请更换浏览器重试")
             raise Exception("浏览器启动失败")
         
-        if self.check_first_run(self.driver, "session_id"):
-            first_run = True
-            # 设置初始Cookie
-            
-        
-        if first_run or not self.cfg.browser_persistent_enable:
-            self._load_initial_local_storage()
-            self.driver.add_cookie({"name": "first_run", "value": "completed"})
+        if not self.cfg.cloud_game_fullscreen_enable:
+            self.driver.set_window_size(1920, 1120)
+        '''if not self.cfg.browser_persistent_enable:
+            self._load_initial_local_storage()'''
         if self.cfg.auto_battle_detect_enable:
             self.change_auto_battle(True) 
-        if self.cfg.browser_dump_cookies_enable:
+        if self.cfg.browser_userdata_enable:
             self._load_cookies()
-            self.driver.add_cookie({"name": "first_run", "value": "completed"})
+            self._load_local_storage()
+            
         self._refresh_page()
 
     def _restart_browser(self, headless=False) -> None:
         """重启浏览器"""
         self.stop_game()
         self._connect_or_create_browser(headless=headless)
-    
+    def _show_warning_tips(self) -> None:
+        # 增强版：带有10秒倒计时
+        warnscript = """
+        // 移除已存在的提示
+        var oldAlert = document.getElementById('countdown-alert');
+        if (oldAlert) oldAlert.remove();
+
+        // 创建提示框
+        var alertDiv = document.createElement('div');
+        alertDiv.id = 'countdown-alert';
+        alertDiv.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            background: linear-gradient(135deg, #ffcc00, #ff9900);
+            color: #333;
+            text-align: center;
+            padding: 20px 0;
+            font-size: 20px;
+            font-weight: bold;
+            z-index: 999999;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            font-family: Arial, sans-serif;
+        `;
+
+        // 添加倒计时功能
+        var countdown = 10;
+        alertDiv.innerHTML = '手动运行请通过悬浮球退出游戏，且等待至少 <span id="countdown">10</span> 秒再关闭浏览器';
+
+        // 添加到页面
+        document.body.appendChild(alertDiv);
+
+        // 开始倒计时
+        var countdownElement = document.getElementById('countdown');
+        var countdownInterval = setInterval(function() {
+            countdown--;
+            if (countdown <= 0) {
+                clearInterval(countdownInterval);
+                alertDiv.innerHTML = '您已经了解本消息内容';
+                alertDiv.style.background = '#4CAF50';
+                alertDiv.style.color = 'white';
+                
+                // 3秒后自动隐藏
+                setTimeout(function() {
+                    alertDiv.style.opacity = '0';
+                    alertDiv.style.transition = 'opacity 1s';
+                    setTimeout(function() {
+                        alertDiv.remove();
+                        document.body.style.marginTop = '0';
+                    }, 1000);
+                }, 3000);
+            }
+        }, 1000);
+
+        // 调整页面内容避免被遮挡
+        setTimeout(function() {
+            document.body.style.marginTop = alertDiv.offsetHeight + 'px';
+        }, 100);
+        """
+
+        self.driver.execute_script(warnscript)
+    def _save_local_storage(self) -> bool:
+        """保存 localStorage"""
+        if not self.driver:
+            return
+        try:
+            ls_json = self.driver.execute_script("return JSON.stringify(window.localStorage);")
+            with open(self.localStorage_PATH, "wb") as f:
+                # f.write(wdp_encrypt(ls_json.encode()))
+                f.write(ls_json.encode())
+            self.log_info("本地存储信息保存成功。")
+        except Exception as e:
+            self.log_error(f"保存 localStorage 失败: {e}")
+    def _load_local_storage(self) -> bool:
+        """加载 localStorage"""
+        if not self.driver:
+            return False
+
+        try:
+            with open(self.localStorage_PATH, "rb") as f:
+                # ls = json.loads(wdp_decrypt(f.read()).decode())
+                ls = json.loads(f.read().decode())
+
+            for key, value in ls.items():
+                try:
+                    self.driver.execute_script(
+                        "window.localStorage.setItem(arguments[0], arguments[1]);",
+                        key,
+                        value,
+                    )
+                except Exception:
+                    pass  # 忽略无效项
+
+            self.driver.refresh()
+            self.log_info("本地存储信息加载成功。")
+            return True
+        except FileNotFoundError:
+            self.log_info("localStorage 文件不存在。正在加载默认配置...")
+            self._load_initial_local_storage()
+            return False
+        except Exception as e:
+            self.log_error(f"加载 localStorage 失败: {e}")
+            return False
     def _load_initial_local_storage(self) -> bool:
         """加载初始配置，去除初始引导，免责协议等弹窗"""
 
@@ -214,7 +321,7 @@ class CloudGameController(GameControllerBase):
             return False
 
     def _save_cookies(self) -> bool:
-        """保存 Cookies （Debug only）""" 
+        """保存 Cookies""" 
         if not self.driver:
             return
         try:
@@ -227,7 +334,7 @@ class CloudGameController(GameControllerBase):
             self.log_error(f"保存 cookies 失败: {e}")
 
     def _load_cookies(self) -> bool:
-        """加载 Cookies （Debug only）"""
+        """加载 Cookies"""
         if not self.driver:
             return False
         try:
@@ -364,7 +471,14 @@ class CloudGameController(GameControllerBase):
         try:
             self._connect_or_create_browser(headless=self.cfg.browser_headless_enable)
             self._confirm_viewport_resolution()
-            return True
+            #self._show_warning_tips()
+            # 启动独立进程监视 is_in_game 的变化（True -> False 时会保存 localStorage）
+            '''try:
+                self.start_in_game_watcher()
+            except Exception:
+                # 监视器启动失败不影响主流程
+                self.log_warning("启动 in-game 监视子进程失败")
+            return True'''
         except Exception as e:
             self.log_error(f"启动或连接浏览器失败 {e}")
             return False
@@ -373,6 +487,93 @@ class CloudGameController(GameControllerBase):
         if self.driver:
             return True if self.driver.find_elements(By.CSS_SELECTOR, ".game-player") else False
         
+    # 启动线程监视 is_in_game（True -> False 时会调用 _save_local_storage）
+    def start_in_game_watcher(self, poll_interval: float = 1.0) -> None:
+        # 如果已有线程在运行则不重复启动
+        if getattr(self, '_in_game_watcher_thread', None) and getattr(self._in_game_watcher_thread, 'is_alive', lambda: False)():
+            self.log_warning("in-game 监视线程已在运行,正在退出")
+            self.stop_in_game_watcher()
+            
+
+        # 停止事件和线程引用
+        self._in_game_watcher_stop_event = Event()
+        def _target():
+            try:
+                self._in_game_watcher_loop(poll_interval, self._in_game_watcher_stop_event)
+            except Exception as e:
+                # 线程内异常记录后退出，不影响主流程
+                try:
+                    self.log_error(f"in-game 监视线程异常: {e}")
+                except Exception:
+                    pass
+
+        t = threading.Thread(target=_target, daemon=True, name="m7a_in_game_watcher")
+        t.start()
+        self._in_game_watcher_thread = t
+        self.log_info("已启动 in-game 监视线程")
+
+    def _in_game_watcher_loop(self, poll_interval: float, stop_event: Event) -> None:
+        """在同一进程内循环轮询 is_in_game，并在 True->False 时保存 localStorage 后退出线程。"""
+        # 先尝试获取初始状态（若为 None 则循环直到布尔值）
+        prev = None
+        try:
+            prev = self.is_in_game()
+        except Exception:
+            prev = None
+
+        while prev is None and not stop_event.is_set():
+            stop_event.wait(poll_interval)
+            try:
+                prev = self.is_in_game()
+            except Exception:
+                prev = None
+
+        # 主循环
+        while not stop_event.is_set():
+            stop_event.wait(poll_interval)
+            try:
+                cur = self.is_in_game()
+            except Exception:
+                cur = None
+            # 检测到从 True 变为 False
+            if prev and (cur is False):
+                self.log_info("检测到游戏已退出，正在保存 localStorage 信息...")
+
+                try:
+                    # 尝试获取当前URL，如果浏览器关闭会抛出异常
+                    current_url = self.driver.current_url
+                    
+                except Exception:
+                    break
+                try:
+                    self._save_local_storage()
+                    self._save_cookies()
+                except Exception as e:
+                    try:
+                        self.log_error(f"保存 localStorage 失败: {e}")
+                    except Exception:
+                        pass
+                break
+            prev = cur
+        self.log_info("in-game 监视线程已退出")
+
+    # 停止监视线程
+    def stop_in_game_watcher(self) -> None:
+        try:
+            stop_event = getattr(self, '_in_game_watcher_stop_event', None)
+            if stop_event:
+                stop_event.set()
+        except Exception:
+            pass
+        try:
+            t = getattr(self, '_in_game_watcher_thread', None)
+            if t and t.is_alive():
+                t.join(timeout=1)
+        except Exception:
+            pass
+        self._in_game_watcher_thread = None
+        self._in_game_watcher_stop_event = None
+
     def enter_cloud_game(self) -> bool:
         """进入云游戏"""
         try:            
@@ -382,9 +583,22 @@ class CloudGameController(GameControllerBase):
                 raise Exception("未登录，请先登录米哈游通行证账号")
                 
                 
+                # 循环检测用户是否登录
+                while not self._check_login():
+                    sleep(2)
+                    
+                self.log_info("检测到登录成功")
+                
+                # 如果为 headless 模式，则重启浏览器回到 headless 模式
+                if self.cfg.browser_headless_enable:
+                    if self.cfg.browser_userdata_enable:
+                        self._save_cookies()
+                        self._save_local_storage()
+                    self._restart_browser(headless=True)
             
-            if self.cfg.browser_dump_cookies_enable:
+            if self.cfg.browser_userdata_enable:
                 self._save_cookies()
+                self._save_local_storage()
             self._click_enter_game()
             if not self._wait_in_queue(int(self.cfg.cloud_game_max_queue_time) * 60):
                 return False
@@ -442,6 +656,12 @@ class CloudGameController(GameControllerBase):
     def stop_game(self) -> bool:
         """退出游戏，关闭浏览器"""
         if self.driver:
+            try:
+                if self.cfg.browser_userdata_enable:
+                    self._save_cookies()
+                    self._save_local_storage()
+            except Exception:
+                self.log_warning("保存登录信息失败")
             try:
                 self.driver.execute(Command.CLOSE)
                 self.log_info("关闭浏览器成功")
